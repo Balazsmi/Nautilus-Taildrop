@@ -1,0 +1,11 @@
+[Unit]
+Description=Tailscale Taildrop Auto-Receive Daemon
+After=network.target
+
+[Service]
+ExecStart=%h/.local/bin/taildrop-auto-receive.sh
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target
