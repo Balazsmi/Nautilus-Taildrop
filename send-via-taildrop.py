@@ -7,7 +7,7 @@ import gi
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
-from gi.repository import Gtk, Adw, GLib
+from gi.repository import Gtk, Adw, GLib, Gio
 
 
 class TaildropSenderWindow(Adw.ApplicationWindow):
@@ -94,9 +94,19 @@ class TaildropSenderWindow(Adw.ApplicationWindow):
 
 def main():
     app = Adw.Application(application_id="org.balazs.TaildropSender")
-    app.connect(
-        "activate", lambda a: TaildropSenderWindow(a, sys.argv[1:]).present()
-    )
+    app.set_flags(app.get_flags() | Gio.ApplicationFlags.HANDLES_OPEN)
+
+    def on_activate(a):
+        # Called when no files are passed (direct invocation)
+        TaildropSenderWindow(a, sys.argv[1:]).present()
+
+    def on_open(a, files, n_files, hint):
+        # Called when Nautilus/GIO passes files via the open signal
+        paths = [f.get_path() for f in files if f.get_path()]
+        TaildropSenderWindow(a, paths).present()
+
+    app.connect("activate", on_activate)
+    app.connect("open", on_open)
     app.run(sys.argv)
 
 
