@@ -1,10 +1,10 @@
-# nautilus-taildrop
+# Nautilus Taildrop
 
 A lightweight Tailscale Taildrop integration for GNOME's Nautilus file manager. Send files to any device on your Tailnet directly from the right-click context menu, and automatically receive incoming files with a desktop notification.
 
 ## Features
 
-- **Right-click → Share → Send via Taildrop** in Nautilus (and Nemo)
+- **Right-click → Scripts → Send via Taildrop** in Nautilus
 - Native GTK4/libadwaita device picker UI
 - Background auto-receive daemon that saves files to `~/Downloads`
 - Desktop notification with an "Open" action when a file arrives
@@ -12,7 +12,7 @@ A lightweight Tailscale Taildrop integration for GNOME's Nautilus file manager. 
 
 ## Preview
 
-Right-clicking a file shows a **Share** submenu with **Send via Taildrop**. Clicking it opens a small window listing all online Tailnet peers. Select a device and the file is sent immediately.
+Right-clicking a file shows a **Scripts** submenu with **Send via Taildrop**. Clicking it opens a small window listing all online Tailnet peers. Select a device and the file is sent immediately.
 
 ## Requirements
 
@@ -36,7 +36,7 @@ sudo apt install python3-gi gir1.2-nautilus-4.0
 ## Installation
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/nautilus-taildrop.git
+git clone https://github.com/Balazsmi/Nautilus-Taildrop.git
 cd nautilus-taildrop
 bash install.sh
 ```
