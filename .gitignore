@@ -1,0 +1,30 @@
+# Python cache and bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+venv/
+.env/
+.env.*
+.python-version
+
+# pytest / unittest / coverage
+.pytest_cache/
+.coverage
+coverage.xml
+htmlcov/
+
+# Editor / IDE files
+.vscode/
+.idea/
+*.swp
+*~
+.DS_Store
+
+# Logs and temporary files
+*.log
+*.tmp
+
+# GNOME / GTK generated files
+*.desktop
