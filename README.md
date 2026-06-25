@@ -3,7 +3,8 @@
 A lightweight Tailscale Taildrop integration for GNOME's Nautilus file manager. Send files to any device on your Tailnet directly from the right-click context menu, and automatically receive incoming files with a desktop notification.
 
 ## Preview
-![Taildrop sender UI](screenshots/taildrop.png)
+![Taildrop sender UI](screenshots/taildrop-light.png)
+![Taildrop sender UI](screenshots/taildrop-dark.png)
 
 ## Features
 
