@@ -1,15 +1,16 @@
 # Nautilus Taildrop
+
 A lightweight Tailscale Taildrop integration for GNOME's Nautilus file manager
 
 
-  ![Taildrop sender UI](screenshots/light.png)
-  ![Taildrop sender UI](screenshots/dark.png)
+![Taildrop sender UI](screenshots/light.png)
+![Taildrop sender UI](screenshots/dark.png)
 
 
 ## 📋 Features
 
 - **Nautilus Integration:** Right-click a file $\rightarrow$ `Scripts` $\rightarrow$ `Send via Taildrop`.
-- **Modern UI:** Borderless, draggable GTK4/Libadwaita device picker matching GNOME's design language.
+- **Modern UI:** Borderless GTK4/Libadwaita device picker matching GNOME's design language and dynamic accent color.
 - **Auto-Receive Daemon:** Background systemd user service that automatically saves incoming files to `~/Downloads`.
 - **Desktop Notifications:** Native alerts with an immediate "Open" action upon receiving a file.
 
@@ -23,24 +24,21 @@ A lightweight Tailscale Taildrop integration for GNOME's Nautilus file manager
 
 **Fedora:**
 ```bash
-sudo dnf install python3-gobject nautilus-python
-
+sudo dnf install python3-gobject
 ```
 
 **Ubuntu / Debian:**
 
 ```bash
-sudo apt install python3-gi gir1.2-nautilus-4.0
-
+sudo apt install python3-gi gir1.2-gtk-4.0 gir1.2-adw-1
 ```
 
 ## 🔨 Installation & Setup
 
 ```bash
-git clone [https://github.com/Balazsmi/Nautilus-Taildrop.git](https://github.com/Balazsmi/Nautilus-Taildrop.git)
-cd nautilus-taildrop
+git clone https://github.com/Balazsmi/Nautilus-Taildrop.git
+cd Nautilus-Taildrop
 bash install.sh
-
 ```
 
 ## 📂 Project Structure
