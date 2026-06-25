@@ -3,93 +3,363 @@ import sys
 import os
 import subprocess
 import threading
+import json
 import gi
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
-from gi.repository import Gtk, Adw, GLib, Gio
+gi.require_version("Pango", "1.0")
+from gi.repository import Gtk, Adw, GLib, Gio, Pango
+
+
+DEVICE_ICONS = {
+    "windows": "computer-symbolic",
+    "linux":   "computer-symbolic",
+    "android": "phone-symbolic",
+    "ios":     "phone-symbolic",
+    "darwin":  "laptop-symbolic",
+    "macos":   "laptop-symbolic",
+}
+
+
+class DeviceButton(Gtk.Box):
+    def __init__(self, name, os_name, callback):
+        super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        self.set_halign(Gtk.Align.CENTER)
+        self.set_valign(Gtk.Align.CENTER)
+        self.set_size_request(96, 120)
+        self.name = name
+        self._anim_id = None
+        self._angle = 0.0
+        self._loading = False
+
+        # Overlay: ring drawn around the button
+        overlay = Gtk.Overlay()
+        overlay.set_halign(Gtk.Align.CENTER)
+        overlay.set_valign(Gtk.Align.CENTER)
+        overlay.set_size_request(84, 84)
+
+        self.btn = Gtk.Button()
+        self.btn.add_css_class("circular")
+        self.btn.add_css_class("device-btn")
+        self.btn.set_size_request(76, 76)
+        self.btn.set_halign(Gtk.Align.CENTER)
+        self.btn.set_valign(Gtk.Align.CENTER)
+
+        icon = Gtk.Image.new_from_icon_name(DEVICE_ICONS.get(os_name, "computer-symbolic"))
+        icon.set_pixel_size(32)
+        self.btn.set_child(icon)
+        self.btn.connect("clicked", lambda _: callback(name))
+        overlay.set_child(self.btn)
+
+        # DrawingArea for the spinning arc ring — pointer-transparent
+        self.da = Gtk.DrawingArea()
+        self.da.set_size_request(84, 84)
+        self.da.set_halign(Gtk.Align.CENTER)
+        self.da.set_valign(Gtk.Align.CENTER)
+        self.da.set_can_target(False)
+        self.da.set_draw_func(self.on_draw)
+        overlay.add_overlay(self.da)
+
+        self.append(overlay)
+
+        label = Gtk.Label(label=name)
+        label.set_max_width_chars(10)
+        label.set_ellipsize(Pango.EllipsizeMode.END)
+        label.set_wrap(True)
+        label.set_justify(Gtk.Justification.CENTER)
+        label.add_css_class("caption")
+        self.append(label)
+
+    def on_draw(self, area, cr, width, height):
+        if not self._loading:
+            return
+        import math
+        xc, yc, r = width / 2, height / 2, 40.0
+        arc = math.pi * 0.75  # arc length ~270°
+
+        cr.set_line_width(3.0)
+        cr.set_line_cap(1)  # ROUND
+
+        # Faint full ring
+        cr.set_source_rgba(0.12, 0.53, 0.90, 0.18)
+        cr.arc(xc, yc, r, 0, 2 * math.pi)
+        cr.stroke()
+
+        # Spinning arc
+        cr.set_source_rgba(0.12, 0.53, 0.90, 1.0)
+        start = self._angle
+        cr.arc(xc, yc, r, start, start + arc)
+        cr.stroke()
+
+    def start_loading(self):
+        self._loading = True
+        self._angle = 0.0
+
+        def tick():
+            if not self._loading:
+                return False
+            import math
+            self._angle = (self._angle + 0.08) % (2 * math.pi)
+            self.da.queue_draw()
+            return True
+
+        self._anim_id = GLib.timeout_add(16, tick)  # ~60fps
+
+    def stop_loading(self):
+        self._loading = False
+        if self._anim_id is not None:
+            GLib.source_remove(self._anim_id)
+            self._anim_id = None
+        self.da.queue_draw()
 
 
 class TaildropSenderWindow(Adw.ApplicationWindow):
     def __init__(self, app, files):
         super().__init__(application=app, title="Send via Taildrop")
         self.files = files
-        self.set_default_size(360, 420)
+        self.set_resizable(False)
 
-        # UI Setup
-        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
-        self.set_content(box)
+        css = Gtk.CssProvider()
+        css.load_from_data(b"""
+            .title-label {
+                font-size: 15pt;
+                font-weight: bold;
+            }
+            .subtitle-label {
+                font-size: 10pt;
+                color: @placeholder_text_color;
+            }
+            .profile-icon-box {
+                background-color: @accent_bg_color;
+                color: @accent_fg_color;
+                border-radius: 20px;
+                min-width: 40px;
+                min-height: 40px;
+            }
+            .device-btn {
+                min-width: 76px;
+                min-height: 76px;
+            }
+            .device-btn image {
+                color: @accent_color;
+            }
 
+            .caption {
+                font-weight: 500;
+                font-size: 10pt;
+            }
+        """)
+        Gtk.StyleContext.add_provider_for_display(
+            self.get_display(), css, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
+        )
+
+        root = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        self.set_content(root)
+
+        # HeaderBar
         header = Adw.HeaderBar()
-        box.append(header)
+        header.set_title_widget(Gtk.Label(label=""))
 
-        # Spinner & Refresh Button
-        self.spinner = Gtk.Spinner()
-        self.spinner.set_visible(False)
-        header.pack_end(self.spinner)
+        root.append(header)
 
-        self.btn_refresh = Gtk.Button.new_from_icon_name("view-refresh-symbolic")
-        self.btn_refresh.connect("clicked", self.on_refresh_clicked)
-        header.pack_start(self.btn_refresh)
+        # Profile row — avatar + text on same line
+        header_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+        header_box.set_margin_start(16)
+        header_box.set_margin_end(16)
+        header_box.set_margin_top(12)
+        header_box.set_margin_bottom(12)
+        header_box.set_valign(Gtk.Align.CENTER)
 
-        # Device List Box
-        self.list_box = Gtk.ListBox()
-        self.list_box.set_selection_mode(Gtk.SelectionMode.NONE)
+        avatar = Adw.Avatar(size=40, text="me", show_initials=False)
+        avatar.set_icon_name("computer-symbolic")
+        avatar.set_valign(Gtk.Align.CENTER)
+        header_box.append(avatar)
+
+        text_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=1)
+        text_box.set_valign(Gtk.Align.CENTER)
+        text_box.set_hexpand(True)
+        title_label = Gtk.Label(label="Taildrop")
+        title_label.add_css_class("title-label")
+        title_label.set_xalign(0)
+        self.subtitle_label = Gtk.Label(label="As …")
+        self.subtitle_label.add_css_class("subtitle-label")
+        self.subtitle_label.set_xalign(0)
+        text_box.append(title_label)
+        text_box.append(self.subtitle_label)
+        header_box.append(text_box)
+
+        root.append(header_box)
+        root.append(Gtk.Separator())
+
+        # Device grid
+        self.flow = Gtk.FlowBox()
+        self.flow.set_valign(Gtk.Align.START)
+        self.flow.set_halign(Gtk.Align.START)
+        self.flow.set_max_children_per_line(4)
+        self.flow.set_min_children_per_line(2)
+        self.flow.set_selection_mode(Gtk.SelectionMode.NONE)
+        self.flow.set_row_spacing(8)
+        self.flow.set_column_spacing(8)
+        self.flow.set_margin_top(16)
+        self.flow.set_margin_bottom(16)
+        self.flow.set_margin_start(16)
+        self.flow.set_margin_end(16)
+
         scrolled = Gtk.ScrolledWindow()
-        scrolled.set_child(self.list_box)
-        box.append(scrolled)
+        scrolled.set_vexpand(False)
+        scrolled.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.NEVER)
+        scrolled.set_propagate_natural_height(True)
+        scrolled.set_child(self.flow)
+        root.append(scrolled)
 
+        root.append(Gtk.Separator())
+
+        # Bottom bar
+        bottom_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+        bottom_bar.set_margin_start(16)
+        bottom_bar.set_margin_end(16)
+        bottom_bar.set_margin_top(10)
+        bottom_bar.set_margin_bottom(10)
+
+        self.status_label = Gtk.Label(label="Searching for devices…")
+        self.status_label.add_css_class("caption")
+        self.status_label.set_hexpand(True)
+        self.status_label.set_xalign(0)
+        bottom_bar.append(self.status_label)
+
+        self.btn_cancel = Gtk.Button(label="Cancel")
+        self.btn_cancel.connect("clicked", lambda _: self.get_application().quit())
+        bottom_bar.append(self.btn_cancel)
+
+        root.append(bottom_bar)
+
+        self.refresh_timeout_id = None
+        self._last_peers = []
+        self.device_buttons = {}
+
+        self.connect("destroy", self.on_destroy)
         self.load_devices()
+        self.start_auto_refresh()
+
+    def on_destroy(self, _):
+        self.stop_auto_refresh()
+
+    def start_auto_refresh(self):
+        if self.refresh_timeout_id is None:
+            self.refresh_timeout_id = GLib.timeout_add_seconds(5, self.auto_refresh)
+
+    def stop_auto_refresh(self):
+        if self.refresh_timeout_id is not None:
+            GLib.source_remove(self.refresh_timeout_id)
+            self.refresh_timeout_id = None
+
+    def auto_refresh(self):
+        if self.flow.get_sensitive():
+            self.load_devices_silent()
+        return True
 
     def load_devices(self):
-        # Clear existing entries
-        while True:
-            row = self.list_box.get_first_child()
-            if not row:
-                break
-            self.list_box.remove(row)
+        self.status_label.set_label("Searching for devices…")
+        self.load_devices_silent()
 
-        # Query tailscale status
+    def load_devices_silent(self):
+        threading.Thread(target=self.query_devices_async, daemon=True).start()
+
+    def query_devices_async(self):
         try:
             res = subprocess.run(
-                ["tailscale", "status", "--peers=true"],
-                capture_output=True,
-                text=True,
+                ["tailscale", "status", "--json"],
+                capture_output=True, text=True, timeout=5,
             )
-            for line in res.stdout.splitlines():
-                parts = line.split()
-                if len(parts) >= 2:
-                    name = parts[1]
-                    row = Gtk.ListBoxRow()
-                    btn = Gtk.Button(label=name)
-                    btn.connect("clicked", self.on_device_selected, name)
-                    row.set_child(btn)
-                    self.list_box.append(row)
+            data = json.loads(res.stdout)
+            self_name = data.get("Self", {}).get("HostName", "").lower()
+            peers = []
+            for peer in data.get("Peer", {}).values():
+                if not peer.get("Online", False):
+                    continue
+                raw = peer.get("HostName", peer.get("DNSName", "Unknown"))
+                name = raw.split(".")[0]
+                if name.lower() in (self_name, "localhost", "", "127"):
+                    continue
+                # Also skip if this peer's IPs include the machine's own addresses
+                peer_ips = peer.get("TailscaleIPs", [])
+                self_ips = set(data.get("Self", {}).get("TailscaleIPs", []))
+                if self_ips & set(peer_ips):
+                    continue
+                os_name = peer.get("OS", "").lower()
+                peers.append((name, os_name))
+            GLib.idle_add(self.update_ui_with_peers, peers, self_name)
         except Exception:
             pass
 
-    def on_refresh_clicked(self, btn):
-        self.load_devices()
+    def update_ui_with_peers(self, peers, self_name):
+        if self_name:
+            self.subtitle_label.set_label(f"As {self_name}")
 
-    def on_device_selected(self, btn, device_name):
-        self.list_box.set_sensitive(False)
-        self.spinner.set_visible(True)
-        self.spinner.start()
-        thread = threading.Thread(target=self.send_operation, args=(device_name,))
-        thread.daemon = True
-        thread.start()
+        if peers == self._last_peers:
+            return
+        self._last_peers = peers
+
+        while self.flow.get_child_at_index(0):
+            self.flow.remove(self.flow.get_child_at_index(0))
+
+        self.device_buttons = {}
+
+        if not peers:
+            self.status_label.set_label("No online devices found.")
+            return
+
+        for name, os_name in peers:
+            btn = DeviceButton(name, os_name, self.on_device_selected)
+            self.flow.append(btn)
+            self.device_buttons[name] = btn
+
+        n = len(peers)
+        self.status_label.set_label(f"{n} device{'s' if n != 1 else ''} available")
+
+        # Resize window to fit all devices without scrolling
+        cols = min(n, 4)
+        rows = math.ceil(n / cols)
+        # Flow content: device buttons 96w/120h, 8px spacing, 16px margins each side
+        flow_w = 16 + cols * 96 + (cols - 1) * 8 + 16
+        flow_h = 16 + rows * 120 + (rows - 1) * 8 + 16
+        width = max(flow_w, 360)
+        # Fixed chrome: headerbar=47, profile row=68, sep=1, sep=1, bottom=56
+        height = 47 + 68 + 1 + flow_h + 1 + 56
+        self.set_size_request(width, height)
+        self.set_default_size(width, height)
+
+    def on_device_selected(self, device_name):
+        self.stop_auto_refresh()
+        self.flow.set_sensitive(False)
+        self.btn_cancel.set_sensitive(False)
+
+        self.status_label.set_label(f"Sending to {device_name}…")
+        if device_name in self.device_buttons:
+            self.device_buttons[device_name].start_loading()
+        threading.Thread(target=self.send_operation, args=(device_name,), daemon=True).start()
 
     def send_operation(self, device):
-        success = True
-        for f in self.files:
-            res = subprocess.run(["tailscale", "file", "cp", f, f"{device}:"])
-            if res.returncode != 0:
-                success = False
-        GLib.idle_add(self.on_finished, success)
+        success = all(
+            subprocess.run(["tailscale", "file", "cp", f, f"{device}:"]).returncode == 0
+            for f in self.files
+        )
+        GLib.idle_add(self.on_finished, device, success)
 
-    def on_finished(self, success):
-        self.spinner.stop()
-        self.close()
+    def on_finished(self, device, success):
+
+        if device in self.device_buttons:
+            self.device_buttons[device].stop_loading()
+        filenames = [os.path.basename(f) for f in self.files]
+        summary = filenames[0] if len(filenames) == 1 else f"{len(filenames)} files"
+        if success:
+            subprocess.Popen(["notify-send", "-a", "Taildrop",
+                              "Sent successfully", f"{summary} → {device}"])
+        else:
+            subprocess.Popen(["notify-send", "-a", "Taildrop",
+                              "Send failed", f"Could not send {summary} to {device}."])
+        self.get_application().quit()
 
 
 def main():
@@ -97,17 +367,15 @@ def main():
     app.set_flags(app.get_flags() | Gio.ApplicationFlags.HANDLES_OPEN)
 
     def on_activate(a):
-        # Called when no files are passed (direct invocation)
         TaildropSenderWindow(a, sys.argv[1:]).present()
 
     def on_open(a, files, n_files, hint):
-        # Called when Nautilus/GIO passes files via the open signal
         paths = [f.get_path() for f in files if f.get_path()]
         TaildropSenderWindow(a, paths).present()
 
     app.connect("activate", on_activate)
     app.connect("open", on_open)
-    app.run(sys.argv)
+    app.run([])
 
 
 if __name__ == "__main__":
