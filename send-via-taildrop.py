@@ -148,6 +148,9 @@ class TaildropSenderWindow(Adw.ApplicationWindow):
             .device-btn image {
                 color: @accent_color;
             }
+            .device-btn image {
+                color: @accent_color;
+            }
             .caption {
                 font-weight: 500;
                 font-size: 10pt;
@@ -168,13 +171,16 @@ class TaildropSenderWindow(Adw.ApplicationWindow):
         header_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
         header_box.set_margin_start(16)
         header_box.set_margin_end(16)
-        header_box.set_margin_top(12)
-        header_box.set_margin_bottom(12)
+        header_box.set_margin_top(16)
+        header_box.set_margin_bottom(16)
         header_box.set_valign(Gtk.Align.CENTER)
 
         avatar = Adw.Avatar(size=40, text="me", show_initials=False)
         avatar.set_icon_name("computer-symbolic")
         avatar.set_valign(Gtk.Align.CENTER)
+        avatar.set_margin_start(0)
+        avatar.set_margin_top(0)
+        avatar.set_margin_bottom(0)
         header_box.append(avatar)
 
         text_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=1)
@@ -217,12 +223,12 @@ class TaildropSenderWindow(Adw.ApplicationWindow):
 
         root.append(Gtk.Separator())
 
-        # Bottom bar
+        # Bottom bar — use the same outer margins as the main flow so corners align
         bottom_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
         bottom_bar.set_margin_start(16)
         bottom_bar.set_margin_end(16)
-        bottom_bar.set_margin_top(10)
-        bottom_bar.set_margin_bottom(10)
+        bottom_bar.set_margin_top(16)
+        bottom_bar.set_margin_bottom(16)
 
         self.status_label = Gtk.Label(label="Searching for devices…")
         self.status_label.add_css_class("caption")
@@ -233,6 +239,11 @@ class TaildropSenderWindow(Adw.ApplicationWindow):
 
         self.btn_cancel = Gtk.Button(label="Cancel")
         self.btn_cancel.connect("clicked", lambda _: self.get_application().quit())
+        # Remove any extra outer margin on the button so its corner aligns with the window
+        self.btn_cancel.set_margin_top(0)
+        self.btn_cancel.set_margin_end(0)
+        self.btn_cancel.set_margin_bottom(0)
+        self.btn_cancel.set_valign(Gtk.Align.CENTER)
         bottom_bar.append(self.btn_cancel)
 
         root.append(bottom_bar)
