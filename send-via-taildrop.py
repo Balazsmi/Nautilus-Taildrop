@@ -234,7 +234,6 @@ class TaildropSenderWindow(Adw.ApplicationWindow):
         header_box.append(text_box)
 
         root.append(header_box)
-        root.append(Gtk.Separator())
 
         # Device grid
         self.flow = Gtk.FlowBox()
@@ -263,8 +262,6 @@ class TaildropSenderWindow(Adw.ApplicationWindow):
         scrolled.set_propagate_natural_height(True)
         scrolled.set_child(self.flow)
         root.append(scrolled)
-
-        root.append(Gtk.Separator())
 
         # Bottom bar — use the same outer margins as the main flow so corners align
         bottom_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
@@ -304,7 +301,7 @@ class TaildropSenderWindow(Adw.ApplicationWindow):
 
     def start_auto_refresh(self):
         if self.refresh_timeout_id is None:
-            self.refresh_timeout_id = GLib.timeout_add_seconds(5, self.auto_refresh)
+            self.refresh_timeout_id = GLib.timeout_add_seconds(1, self.auto_refresh)
 
     def stop_auto_refresh(self):
         if self.refresh_timeout_id is not None:
@@ -351,7 +348,10 @@ class TaildropSenderWindow(Adw.ApplicationWindow):
                 if self_ips & set(peer_ips):
                     continue
                 os_name = peer.get("OS", "").lower()
-                online = bool(peer.get("Online", False))
+                # Use explicit online status only. Some offline peers can still
+                # have Tailscale IPs listed, so fallback on IP presence is unsafe.
+                online_val = peer.get("Online")
+                online = online_val is True or str(online_val).lower() == "true"
                 peers.append((display, os_name, online))
             GLib.idle_add(self.update_ui_with_peers, peers, self_name)
         except Exception:
