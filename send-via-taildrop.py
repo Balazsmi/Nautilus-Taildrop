@@ -148,12 +148,21 @@ class TaildropSenderWindow(Adw.ApplicationWindow):
             .device-btn image {
                 color: @accent_color;
             }
-            .device-btn image {
-                color: @accent_color;
-            }
             .caption {
                 font-weight: 500;
                 font-size: 10pt;
+            }
+            flowboxchild {
+                background: none;
+                border-radius: 0;
+                padding: 0;
+            }
+            flowboxchild:hover,
+            flowboxchild:focus,
+            flowboxchild:selected {
+                background: none;
+                box-shadow: none;
+                outline: none;
             }
         """)
         Gtk.StyleContext.add_provider_for_display(
@@ -331,11 +340,6 @@ class TaildropSenderWindow(Adw.ApplicationWindow):
 
         n = len(peers)
         self.status_label.set_label(f"{n} device{'s' if n != 1 else ''} available")
-
-        # Do not force a window size here — allow the toolkit to size naturally
-        # The previous behavior computed a large `height` and called
-        # `set_size_request`/`set_default_size`, which caused the visible
-        # bottom padding to increase. Keeping sizing automatic keeps margins stable.
 
     def on_device_selected(self, device_name):
         self.stop_auto_refresh()
