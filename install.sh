@@ -16,9 +16,7 @@ if ! python3 -c "import gi" &> /dev/null; then
     exit 1
 fi
 
-# The right-click menu entry is provided by a nautilus-python extension. Warn (but
-# don't fail) if the loader is missing — the sender still works when launched
-# directly, and the daemon is unaffected.
+# The right-click entry needs the nautilus-python loader; warn but don't fail.
 if ! python3 -c "import gi; gi.require_version('Nautilus', '4.1'); from gi.repository import Nautilus" &> /dev/null \
    && ! python3 -c "import gi; gi.require_version('Nautilus', '4.0'); from gi.repository import Nautilus" &> /dev/null; then
     echo "Warning: the nautilus-python extension bindings were not found."

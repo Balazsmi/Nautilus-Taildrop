@@ -26,26 +26,20 @@ pkgver() {
 package() {
     cd "$srcdir/$_pkgname"
 
-    # GTK sender → /usr/bin/send-via-taildrop
     install -Dm755 send-via-taildrop.py "$pkgdir/usr/bin/send-via-taildrop"
-
-    # Auto-receive daemon → /usr/bin
     install -Dm755 taildrop-auto-receive.sh "$pkgdir/usr/bin/taildrop-auto-receive.sh"
 
-    # Nautilus/Nemo context-menu extension → loaded system-wide by nautilus-python,
-    # so the "Send via Taildrop" entry needs no per-user setup.
+    # nautilus-python loads this system-wide
     install -Dm644 nautilus-taildrop.py \
         "$pkgdir/usr/share/nautilus-python/extensions/nautilus-taildrop.py"
 
-    # Systemd *user* unit, with ExecStart repointed at the packaged binary
-    # (upstream's unit references ~/.local/bin for the manual install.sh flow).
+    # systemd user unit, ExecStart repointed at the packaged binary
     install -Dm644 taildrop-auto-receive.service \
         "$pkgdir/usr/lib/systemd/user/taildrop-auto-receive.service"
     sed -i 's|^ExecStart=.*|ExecStart=/usr/bin/taildrop-auto-receive.sh|' \
         "$pkgdir/usr/lib/systemd/user/taildrop-auto-receive.service"
 
-    # Enable the user service by default for every user (no manual
-    # `systemctl --user enable` needed) via a wants-symlink.
+    # enable the user service by default via a wants-symlink
     install -d "$pkgdir/usr/lib/systemd/user/default.target.wants"
     ln -s ../taildrop-auto-receive.service \
         "$pkgdir/usr/lib/systemd/user/default.target.wants/taildrop-auto-receive.service"

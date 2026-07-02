@@ -1,16 +1,9 @@
-"""Pytest configuration.
-
-``test_taildrop.py`` imports the GTK4 sender module, which needs PyGObject and the
-GTK/Adw/Pango typelibs. PyGObject ships in the dev dependency group, so it is
-normally importable under ``uv run pytest``; if it is somehow unavailable we skip
-collecting the module rather than erroring. (Widget *construction* additionally
-needs a display — that finer-grained skip lives in the test itself.)
-"""
+"""Skip the GTK test module when PyGObject/typelibs are unavailable."""
 
 
 def _gi_stack_available() -> bool:
     try:
-        import gi  # noqa: PLC0415  (lazy: conftest must load even without PyGObject)
+        import gi  # noqa: PLC0415
 
         gi.require_version("Gtk", "4.0")
         gi.require_version("Adw", "1")

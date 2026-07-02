@@ -11,9 +11,7 @@ fi
 DOWNLOADS_DIR="$HOME/Downloads"
 mkdir -p "$DOWNLOADS_DIR"
 
-# Print the path of the most recently modified regular file in a directory, or
-# nothing if it is empty. Uses find/sort so spaces in filenames are handled
-# correctly (unlike parsing `ls`).
+# Most recently modified file in a directory (find/sort handles spaces).
 newest_file() {
     find "$1" -maxdepth 1 -type f -printf '%T@\t%p\n' 2>/dev/null \
         | sort -rn | head -n 1 | cut -f2-
@@ -21,8 +19,8 @@ newest_file() {
 
 while true; do
     if "$TAILSCALE_BIN" file get --wait --conflict=rename "$DOWNLOADS_DIR/" 2>&1; then
-        # Give the filesystem a moment to settle before locating the new file.
-        sleep 0.5
+        sleep 0.5  # let the write settle before locating the file
+
         filepath=$(newest_file "$DOWNLOADS_DIR")
 
         if [ -z "$filepath" ] || [ ! -e "$filepath" ]; then

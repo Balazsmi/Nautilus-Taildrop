@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-import contextlib
 import json
 import math
 import shutil
@@ -13,7 +12,7 @@ import gi
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 gi.require_version("Pango", "1.0")
-from gi.repository import (  # noqa: E402  (gi requires require_version first)
+from gi.repository import (  # noqa: E402
     Adw,
     Gdk,
     Gio,
@@ -31,27 +30,17 @@ DEVICE_ICONS = {
     "macos":   "laptop-symbolic",
 }
 
-# Fallback accent color (GNOME blue) used when the theme exposes no accent.
+# Fallback accent (GNOME blue) when the theme exposes none.
 _FALLBACK_ACCENT = (0.21, 0.52, 0.89, 1.0)
 
-# A fully-specified peer entry is (display_name, os_name, online).
-_PEER_ENTRY_FIELDS = 3
-
-# Resolve required/optional executables to absolute paths once, up front. Using an
-# absolute path (rather than relying on a mutable PATH at call time) avoids
-# accidentally invoking a different binary and lets us fail fast with a clear error.
+# Resolve to absolute paths once so a mutable PATH can't redirect us later.
 TAILSCALE_BIN = shutil.which("tailscale")
 NOTIFY_SEND_BIN = shutil.which("notify-send")
 
 
 def _notify(title, body):
-    """Best-effort desktop notification; silently no-ops if notify-send is absent."""
-    if not NOTIFY_SEND_BIN:
-        return
-    with contextlib.suppress(Exception):
-        subprocess.Popen(  # noqa: S603  (fixed argv, no shell, resolved absolute path)
-            [NOTIFY_SEND_BIN, "-a", "Taildrop", title, body],
-        )
+    if NOTIFY_SEND_BIN:
+        subprocess.Popen([NOTIFY_SEND_BIN, "-a", "Taildrop", title, body])  # noqa: S603
 
 
 class DeviceButton(Gtk.Box):
@@ -157,27 +146,18 @@ class DeviceButton(Gtk.Box):
         self.da.queue_draw()
 
     def set_online(self, online: bool):
-        """Update visual/interactive state for online/offline devices without
-        recreating the widget."""
         self.online = bool(online)
-        with contextlib.suppress(Exception):
-            if self.online:
-                self.btn.set_sensitive(True)
-                # ensure offline class removed
-                with contextlib.suppress(Exception):
-                    self.btn.remove_css_class("offline")
-            else:
-                self.btn.set_sensitive(False)
-                with contextlib.suppress(Exception):
-                    self.btn.add_css_class("offline")
+        self.btn.set_sensitive(self.online)
+        if self.online:
+            self.btn.remove_css_class("offline")
+        else:
+            self.btn.add_css_class("offline")
 
 
 class TaildropSenderWindow(Adw.ApplicationWindow):
     def __init__(self, app, files):
         super().__init__(application=app, title="Taildrop")
         self.files = files
-        # Resizable with a sensible default so the device area scrolls when a
-        # tailnet has many peers, rather than growing the window unbounded.
         self.set_default_size(380, 520)
 
         css = Gtk.CssProvider()
@@ -218,8 +198,6 @@ class TaildropSenderWindow(Adw.ApplicationWindow):
             self.get_display(), css, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
         )
 
-        # Modern Adwaita layout: ToolbarView with a proper HeaderBar (which gives
-        # the window its close button + drag area) on top and a status bar below.
         toolbar_view = Adw.ToolbarView()
         self.set_content(toolbar_view)
 
@@ -228,11 +206,10 @@ class TaildropSenderWindow(Adw.ApplicationWindow):
         header.set_title_widget(self.window_title)
         toolbar_view.add_top_bar(header)
 
-        # Device grid
+        # Device grid, 3 per row
         self.flow = Gtk.FlowBox()
         self.flow.set_valign(Gtk.Align.START)
         self.flow.set_halign(Gtk.Align.CENTER)
-        # Show at most 3 devices per row so additional devices wrap to the next line
         self.flow.set_max_children_per_line(3)
         self.flow.set_min_children_per_line(3)
         self.flow.set_selection_mode(Gtk.SelectionMode.NONE)
@@ -243,8 +220,7 @@ class TaildropSenderWindow(Adw.ApplicationWindow):
         self.flow.set_margin_start(16)
         self.flow.set_margin_end(16)
 
-        # Clamp keeps the grid a comfortable width on wide windows; the scrolled
-        # window (vexpand) makes the grid the scrollable region when it overflows.
+        # Clamp the width; the vexpanding scroller is what overflows.
         clamp = Adw.Clamp(maximum_size=360, tightening_threshold=280)
         clamp.set_child(self.flow)
 
@@ -274,7 +250,6 @@ class TaildropSenderWindow(Adw.ApplicationWindow):
         self._last_peers = []
         self.device_buttons = {}
 
-        # Escape closes the window (in addition to the header-bar close button).
         esc = Gtk.EventControllerKey()
         esc.connect("key-pressed", self._on_key_pressed)
         self.add_controller(esc)
@@ -302,7 +277,6 @@ class TaildropSenderWindow(Adw.ApplicationWindow):
             self.refresh_timeout_id = None
 
     def auto_refresh(self):
-        # Always poll for devices while the window is open (stops when stop_auto_refresh is called)
         self.load_devices_silent()
         return True
 
@@ -315,101 +289,59 @@ class TaildropSenderWindow(Adw.ApplicationWindow):
 
     def query_devices_async(self):
         try:
-            res = subprocess.run(  # noqa: S603  (fixed argv, no shell, resolved absolute path)
+            res = subprocess.run(  # noqa: S603
                 [TAILSCALE_BIN, "status", "--json"],
                 capture_output=True, text=True, timeout=5, check=False,
             )
             data = json.loads(res.stdout)
-            # Use device display names where available and include offline peers.
             self_name = data.get("Self", {}).get("HostName", "").lower()
-            peers = []
             self_ips = set(data.get("Self", {}).get("TailscaleIPs", []))
+            peers = []
             for peer in data.get("Peer", {}).values():
-                # Prefer explicit display/name fields from Tailscale JSON
-                # Prefer explicit Tailscale name/display if present. Many peers
-                # only expose HostName and DNSName; prefer the DNS short label
-                # (e.g. "ipad-pro" from "ipad-pro.tail4ed4a8.ts.net.") when available
-                name_field = peer.get("Name") or peer.get("DisplayName")
-                user = peer.get("User") or {}
-                user_field = user.get("DisplayName") or user.get("LoginName")
-                dns = peer.get("DNSName") or ""
-                dns_label = dns.rstrip('.').split('.')[0] if dns else None
-                host = peer.get("HostName")
-                display = name_field or user_field or dns_label or host or "Unknown"
-                # Do not split on dots — show the user-facing device name
-                # Skip adding the local device by comparing Tailscale IPs
-                peer_ips = peer.get("TailscaleIPs", [])
-                if self_ips & set(peer_ips):
+                # Skip the local device.
+                if self_ips & set(peer.get("TailscaleIPs", [])):
                     continue
-                os_name = peer.get("OS", "").lower()
-                # Use explicit online status only. Some offline peers can still
-                # have Tailscale IPs listed, so fallback on IP presence is unsafe.
-                online_val = peer.get("Online")
-                online = online_val is True or str(online_val).lower() == "true"
-                peers.append((display, os_name, online))
+                user = peer.get("User") or {}
+                dns = peer.get("DNSName") or ""
+                dns_label = dns.rstrip(".").split(".")[0] if dns else None
+                display = (
+                    peer.get("Name") or peer.get("DisplayName")
+                    or user.get("DisplayName") or user.get("LoginName")
+                    or dns_label or peer.get("HostName") or "Unknown"
+                )
+                online = peer.get("Online") is True
+                peers.append((display, peer.get("OS", "").lower(), online))
             GLib.idle_add(self.update_ui_with_peers, peers, self_name)
         except (OSError, subprocess.SubprocessError, json.JSONDecodeError) as exc:
-            # Don't crash the poll loop, but surface the cause so a broken/missing
-            # tailscale CLI is diagnosable instead of silently showing no devices.
+            # Keep the poll loop alive but make a broken tailscale CLI visible.
             print(f"taildrop: failed to query devices: {exc}", file=sys.stderr)
 
     def update_ui_with_peers(self, peers, self_name):
         if self_name:
             self.window_title.set_subtitle(self_name)
-        # Build mapping of new peers and sort so online devices are preferred in
-        # the resulting list. We'll reuse existing DeviceButton widgets where
-        # possible to avoid recreating widgets (which causes hover flicker).
-        new_map = {}
-        for entry in peers:
-            if len(entry) == _PEER_ENTRY_FIELDS:
-                name, os_name, online = entry
-            else:
-                name, os_name = entry
-                online = True
-            new_map[name] = (os_name, bool(online))
-        # If there are no peers at all, remove any existing widgets and
-        # show a clearer message.
+        new_map = {name: (os_name, online) for name, os_name, online in peers}
+
         if not new_map:
-            for name in list(self.device_buttons.keys()):
-                w = self.device_buttons.pop(name, None)
-                if w:
-                    with contextlib.suppress(Exception):
-                        self.flow.remove(w)
+            for name in list(self.device_buttons):
+                self.flow.remove(self.device_buttons.pop(name))
             self.status_label.set_label("No devices found.")
             return
 
-        # Sort names: online first, then alphabetically
-        try:
-            sorted_names = sorted(
-                new_map.items(),
-                key=lambda kv: (0 if kv[1][1] else 1, kv[0].lower()),
-            )
-            sorted_names = [n for n, _ in sorted_names]
-        except Exception:
-            sorted_names = list(new_map.keys())
-
-        # Add or update widgets for peers in sorted order; do not remove or
-        # recreate widgets unnecessarily so hover states remain.
-        existing = set(self.device_buttons.keys())
+        # Online first, then alphabetical. Reuse existing widgets to avoid flicker.
+        sorted_names = sorted(new_map, key=lambda n: (not new_map[n][1], n.lower()))
+        existing = set(self.device_buttons)
         for name in sorted_names:
             os_name, online = new_map[name]
             if name in self.device_buttons:
-                btn = self.device_buttons[name]
-                # update online state without recreating
-                btn.set_online(online)
+                self.device_buttons[name].set_online(online)
             else:
                 btn = DeviceButton(name, os_name, self.on_device_selected, online)
                 self.flow.append(btn)
                 self.device_buttons[name] = btn
 
-        # Remove widgets for peers that no longer exist
-        for name in list(existing - set(new_map.keys())):
-            w = self.device_buttons.pop(name, None)
-            if w:
-                with contextlib.suppress(Exception):
-                    self.flow.remove(w)
+        for name in existing - set(new_map):
+            self.flow.remove(self.device_buttons.pop(name))
 
-        # Show only the number of online devices in the status label
         online_count = sum(1 for v in new_map.values() if v[1])
         if online_count == 0:
             self.status_label.set_label("No online devices found.")
@@ -427,10 +359,9 @@ class TaildropSenderWindow(Adw.ApplicationWindow):
         threading.Thread(target=self.send_operation, args=(device_name,), daemon=True).start()
 
     def send_operation(self, device):
-        # No timeout here: transfers are unbounded in size. check=False is explicit
-        # because we branch on returncode ourselves rather than raising.
+        # No timeout: transfers are unbounded in size.
         success = all(
-            subprocess.run(  # noqa: S603  (fixed argv, no shell, resolved absolute path)
+            subprocess.run(  # noqa: S603
                 [TAILSCALE_BIN, "file", "cp", f, f"{device}:"], check=False,
             ).returncode == 0
             for f in self.files
@@ -438,7 +369,6 @@ class TaildropSenderWindow(Adw.ApplicationWindow):
         GLib.idle_add(self.on_finished, device, success)
 
     def on_finished(self, device, success):
-
         if device in self.device_buttons:
             self.device_buttons[device].stop_loading()
         filenames = [Path(f).name for f in self.files]

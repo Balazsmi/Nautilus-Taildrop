@@ -5,10 +5,7 @@ description = "Lightweight Tailscale Taildrop integration for GNOME's Nautilus f
 readme = "README.md"
 requires-python = ">=3.11"
 
-# NOTE: end users get the runtime stack (GTK4, libadwaita, the tailscale CLI,
-# libnotify, xdg-utils, and the GObject-introspection typelibs) from their distro,
-# so nothing is listed here — see the README. PyGObject itself is pip-buildable and
-# lives in the dev group below purely so the test suite can import the GTK module.
+# Runtime stack (GTK4, libadwaita, tailscale, typelibs) comes from the distro; see README.
 dependencies = []
 
 [project.urls]
@@ -19,18 +16,19 @@ Repository = "https://github.com/PaarthShah/Nautilus-Taildrop"
 dev = [
     "ruff",
     "pytest",
-    # Building PyGObject/pycairo from source needs the GObject-introspection and
-    # cairo development files plus a C compiler (e.g. Arch: `glib2 cairo pkgconf
-    # base-devel`). The GTK/Adw typelibs are still loaded from the system at runtime.
+    # pygobject/pycairo let the tests import the GTK module; they build against the
+    # system GI/cairo dev files (Arch: glib2 cairo pkgconf base-devel).
     "pygobject",
     "pycairo",
 ]
 
 [tool.uv]
-# This is a collection of scripts, not an importable/installable package.
 package = false
 
-# --- Linting (migrated from ruff.toml) -------------------------------------
+[tool.pytest.ini_options]
+# PyGObject emits this from its own overrides on import; not actionable here.
+filterwarnings = ["ignore:GLib.unix_signal_add_full is deprecated"]
+
 [tool.ruff]
 target-version = "py311"
 line-length = 100
@@ -55,7 +53,6 @@ select = [
 ]
 
 [tool.ruff.lint.pylint]
-# The window builder and device-list reconciliation are inherently long/branchy
-# UI code; keep the ceilings pragmatic rather than force an awkward refactor.
+# UI construction is inherently long/branchy; keep the ceilings pragmatic.
 max-branches = 20
 max-statements = 80
