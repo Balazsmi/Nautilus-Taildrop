@@ -1,16 +1,25 @@
 #!/usr/bin/env python3
-import sys
-import os
-import subprocess
-import threading
+import contextlib
 import json
+import math
+import subprocess
+import sys
+import threading
+from pathlib import Path
+
 import gi
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 gi.require_version("Pango", "1.0")
-from gi.repository import Gtk, Adw, GLib, Gio, Pango
-
+from gi.repository import (  # noqa: E402  (gi requires require_version first)
+    Adw,
+    Gdk,
+    Gio,
+    GLib,
+    Gtk,
+    Pango,
+)
 
 DEVICE_ICONS = {
     "windows": "computer-symbolic",
@@ -20,6 +29,12 @@ DEVICE_ICONS = {
     "darwin":  "laptop-symbolic",
     "macos":   "laptop-symbolic",
 }
+
+# Fallback accent color (GNOME blue) used when the theme exposes no accent.
+_FALLBACK_ACCENT = (0.21, 0.52, 0.89, 1.0)
+
+# A fully-specified peer entry is (display_name, os_name, online).
+_PEER_ENTRY_FIELDS = 3
 
 
 class DeviceButton(Gtk.Box):
@@ -74,10 +89,9 @@ class DeviceButton(Gtk.Box):
         label.add_css_class("caption")
         self.append(label)
 
-    def on_draw(self, area, cr, width, height):
+    def on_draw(self, _area, cr, width, height):
         if not self._loading:
             return
-        import math
         xc, yc, r = width / 2, height / 2, 40.0
         arc = math.pi * 0.75  # arc length ~270°
 
@@ -87,9 +101,9 @@ class DeviceButton(Gtk.Box):
         if not found:
             found, accent = style.lookup_color("theme_selected_bg_color")
         if not found:
-            from gi.repository import Gdk
             accent = Gdk.RGBA()
-            accent.red, accent.green, accent.blue, accent.alpha = 0.21, 0.52, 0.89, 1.0
+            (accent.red, accent.green,
+             accent.blue, accent.alpha) = _FALLBACK_ACCENT
 
         cr.set_line_width(3.0)
         cr.set_line_cap(1)  # ROUND
@@ -112,7 +126,6 @@ class DeviceButton(Gtk.Box):
         def tick():
             if not self._loading:
                 return False
-            import math
             self._angle = (self._angle + 0.08) % (2 * math.pi)
             self.da.queue_draw()
             return True
@@ -130,22 +143,16 @@ class DeviceButton(Gtk.Box):
         """Update visual/interactive state for online/offline devices without
         recreating the widget."""
         self.online = bool(online)
-        try:
+        with contextlib.suppress(Exception):
             if self.online:
                 self.btn.set_sensitive(True)
                 # ensure offline class removed
-                try:
+                with contextlib.suppress(Exception):
                     self.btn.remove_css_class("offline")
-                except Exception:
-                    pass
             else:
                 self.btn.set_sensitive(False)
-                try:
+                with contextlib.suppress(Exception):
                     self.btn.add_css_class("offline")
-                except Exception:
-                    pass
-        except Exception:
-            pass
 
 
 class TaildropSenderWindow(Adw.ApplicationWindow):
@@ -331,7 +338,8 @@ class TaildropSenderWindow(Adw.ApplicationWindow):
                 # only expose HostName and DNSName; prefer the DNS short label
                 # (e.g. "ipad-pro" from "ipad-pro.tail4ed4a8.ts.net.") when available
                 name_field = peer.get("Name") or peer.get("DisplayName")
-                user_field = (peer.get("User") or {}).get("DisplayName") or (peer.get("User") or {}).get("LoginName")
+                user = peer.get("User") or {}
+                user_field = user.get("DisplayName") or user.get("LoginName")
                 dns = peer.get("DNSName") or ""
                 dns_label = dns.rstrip('.').split('.')[0] if dns else None
                 host = peer.get("HostName")
@@ -353,13 +361,13 @@ class TaildropSenderWindow(Adw.ApplicationWindow):
 
     def update_ui_with_peers(self, peers, self_name):
         if self_name:
-            self.subtitle_label.set_label(f"{self_name}")
+            self.subtitle_label.set_label(self_name)
         # Build mapping of new peers and sort so online devices are preferred in
         # the resulting list. We'll reuse existing DeviceButton widgets where
         # possible to avoid recreating widgets (which causes hover flicker).
         new_map = {}
         for entry in peers:
-            if len(entry) == 3:
+            if len(entry) == _PEER_ENTRY_FIELDS:
                 name, os_name, online = entry
             else:
                 name, os_name = entry
@@ -371,16 +379,17 @@ class TaildropSenderWindow(Adw.ApplicationWindow):
             for name in list(self.device_buttons.keys()):
                 w = self.device_buttons.pop(name, None)
                 if w:
-                    try:
+                    with contextlib.suppress(Exception):
                         self.flow.remove(w)
-                    except Exception:
-                        pass
             self.status_label.set_label("No devices found.")
             return
 
         # Sort names: online first, then alphabetically
         try:
-            sorted_names = sorted(new_map.items(), key=lambda kv: (0 if kv[1][1] else 1, kv[0].lower()))
+            sorted_names = sorted(
+                new_map.items(),
+                key=lambda kv: (0 if kv[1][1] else 1, kv[0].lower()),
+            )
             sorted_names = [n for n, _ in sorted_names]
         except Exception:
             sorted_names = list(new_map.keys())
@@ -403,17 +412,16 @@ class TaildropSenderWindow(Adw.ApplicationWindow):
         for name in list(existing - set(new_map.keys())):
             w = self.device_buttons.pop(name, None)
             if w:
-                try:
+                with contextlib.suppress(Exception):
                     self.flow.remove(w)
-                except Exception:
-                    pass
 
         # Show only the number of online devices in the status label
-        online_count = sum(1 for _, v in new_map.items() if v[1])
+        online_count = sum(1 for v in new_map.values() if v[1])
         if online_count == 0:
             self.status_label.set_label("No online devices found.")
         else:
-            self.status_label.set_label(f"{online_count} device{'s' if online_count != 1 else ''} online")
+            plural = "s" if online_count != 1 else ""
+            self.status_label.set_label(f"{online_count} device{plural} online")
 
     def on_device_selected(self, device_name):
         self.stop_auto_refresh()
@@ -436,7 +444,7 @@ class TaildropSenderWindow(Adw.ApplicationWindow):
 
         if device in self.device_buttons:
             self.device_buttons[device].stop_loading()
-        filenames = [os.path.basename(f) for f in self.files]
+        filenames = [Path(f).name for f in self.files]
         summary = filenames[0] if len(filenames) == 1 else f"{len(filenames)} files"
         if success:
             subprocess.Popen(["notify-send", "-a", "Taildrop",
@@ -454,7 +462,7 @@ def main():
     def on_activate(a):
         TaildropSenderWindow(a, sys.argv[1:]).present()
 
-    def on_open(a, files, n_files, hint):
+    def on_open(a, files, _n_files, _hint):
         paths = [f.get_path() for f in files if f.get_path()]
         TaildropSenderWindow(a, paths).present()
 

@@ -1,0 +1,34 @@
+# Aggressive linting for Nautilus-Taildrop.
+# Security rules (flake8-bandit "S") are enabled separately in the hardening pass.
+target-version = "py311"
+line-length = 100
+
+[lint]
+select = [
+    "E",    # pycodestyle errors
+    "F",    # pyflakes
+    "W",    # pycodestyle warnings
+    "I",    # isort
+    "B",    # flake8-bugbear
+    "UP",   # pyupgrade
+    "SIM",  # flake8-simplify
+    "C4",   # flake8-comprehensions
+    "RUF",  # ruff-specific
+    "PL",   # pylint
+    "PTH",  # flake8-use-pathlib
+    "A",    # flake8-builtins
+    "ARG",  # flake8-unused-arguments
+    "TRY",  # tryceratops
+]
+
+ignore = [
+    # subprocess `check=` handling is a robustness/security concern addressed in
+    # the hardening pass; enabled there so it isn't silently auto-suppressed here.
+    "PLW1510",
+]
+
+[lint.pylint]
+# The window builder and device-list reconciliation are inherently long/branchy
+# UI code; keep the ceilings pragmatic rather than force an awkward refactor.
+max-branches = 20
+max-statements = 80
