@@ -44,8 +44,28 @@ cd Nautilus-Taildrop
 bash install.sh
 ```
 
+## 🧑‍💻 Development
+
+The project uses [uv](https://docs.astral.sh/uv/) to manage dev tooling (ruff and
+pytest). Runtime dependencies (PyGObject, GTK4, libadwaita, the `tailscale` CLI)
+are **system** packages — they provide GObject-introspection typelibs and native
+binaries and are not pip/uv-installable, so `pyproject.toml` intentionally leaves
+`dependencies` empty. Install them via your distro (see above).
+
+```bash
+uv sync              # create the dev venv (ruff + pytest)
+uv run ruff check .  # lint
+uv run pytest        # run tests
+```
+
+> The tests import the GTK sender and therefore need system PyGObject **and** an
+> active display. In uv's isolated venv (or headless) they are skipped
+> automatically via `conftest.py`; run them against the system Python
+> (`python3 -m pytest`) in a graphical session to exercise them.
+
 ## 📂 Project Structure
 
 * `send-via-taildrop.py` — The standalone frameless GTK4 device selection window.
 * `taildrop-auto-receive.sh` — The background loop utilizing `tailscale file get --wait`.
 * `taildrop-auto-receive.service` — Systemd user service managing the auto-receive lifecycle.
+* `pyproject.toml` — Project metadata, uv dev dependency group, and ruff lint config.

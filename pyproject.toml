@@ -1,0 +1,56 @@
+[project]
+name = "nautilus-taildrop"
+version = "0.1.0"
+description = "Lightweight Tailscale Taildrop integration for GNOME's Nautilus file manager"
+readme = "README.md"
+requires-python = ">=3.11"
+
+# NOTE: the runtime dependencies (PyGObject, GTK4, libadwaita, the tailscale CLI,
+# libnotify, xdg-utils) are *system* packages that provide GObject-introspection
+# typelibs and native binaries. They are not reliably pip/uv-installable, so they
+# are intentionally NOT listed here — install them via your distro (see README).
+dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/PaarthShah/Nautilus-Taildrop"
+Repository = "https://github.com/PaarthShah/Nautilus-Taildrop"
+
+[dependency-groups]
+dev = [
+    "ruff",
+    "pytest",
+]
+
+[tool.uv]
+# This is a collection of scripts, not an importable/installable package.
+package = false
+
+# --- Linting (migrated from ruff.toml) -------------------------------------
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle errors
+    "F",    # pyflakes
+    "W",    # pycodestyle warnings
+    "I",    # isort
+    "B",    # flake8-bugbear
+    "UP",   # pyupgrade
+    "SIM",  # flake8-simplify
+    "C4",   # flake8-comprehensions
+    "RUF",  # ruff-specific
+    "PL",   # pylint
+    "PTH",  # flake8-use-pathlib
+    "A",    # flake8-builtins
+    "ARG",  # flake8-unused-arguments
+    "TRY",  # tryceratops
+    "S",    # flake8-bandit (security)
+]
+
+[tool.ruff.lint.pylint]
+# The window builder and device-list reconciliation are inherently long/branchy
+# UI code; keep the ceilings pragmatic rather than force an awkward refactor.
+max-branches = 20
+max-statements = 80
