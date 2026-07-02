@@ -176,18 +176,12 @@ class TaildropSenderWindow(Adw.ApplicationWindow):
     def __init__(self, app, files):
         super().__init__(application=app, title="Taildrop")
         self.files = files
-        self.set_resizable(False)
+        # Resizable with a sensible default so the device area scrolls when a
+        # tailnet has many peers, rather than growing the window unbounded.
+        self.set_default_size(380, 520)
 
         css = Gtk.CssProvider()
         css.load_from_data(b"""
-            .title-label {
-                font-size: 15pt;
-                font-weight: bold;
-                color: @window_fg_color;
-            }
-            .subtitle-label {
-                font-size: 10pt;
-            }
             .device-btn {
                 min-width: 76px;
                 min-height: 76px;
@@ -224,34 +218,15 @@ class TaildropSenderWindow(Adw.ApplicationWindow):
             self.get_display(), css, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
         )
 
-        root = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
-        self.set_content(root)
+        # Modern Adwaita layout: ToolbarView with a proper HeaderBar (which gives
+        # the window its close button + drag area) on top and a status bar below.
+        toolbar_view = Adw.ToolbarView()
+        self.set_content(toolbar_view)
 
-        # Profile row — avatar + text on same line
-        header_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
-        header_box.set_margin_start(16)
-        header_box.set_margin_end(16)
-        header_box.set_margin_top(16)
-        header_box.set_margin_bottom(16)
-        header_box.set_valign(Gtk.Align.CENTER)
-
-        # avatar removed — header shows title and subtitle only
-
-        text_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=1)
-        text_box.set_valign(Gtk.Align.CENTER)
-        text_box.set_hexpand(True)
-        title_label = Gtk.Label(label="Taildrop")
-        title_label.add_css_class("title-label")
-        title_label.set_xalign(0)
-        self.subtitle_label = Gtk.Label(label="")
-        self.subtitle_label.add_css_class("subtitle-label")
-        self.subtitle_label.add_css_class("dim-label")
-        self.subtitle_label.set_xalign(0)
-        text_box.append(title_label)
-        text_box.append(self.subtitle_label)
-        header_box.append(text_box)
-
-        root.append(header_box)
+        header = Adw.HeaderBar()
+        self.window_title = Adw.WindowTitle(title="Taildrop", subtitle="")
+        header.set_title_widget(self.window_title)
+        toolbar_view.add_top_bar(header)
 
         # Device grid
         self.flow = Gtk.FlowBox()
@@ -265,28 +240,27 @@ class TaildropSenderWindow(Adw.ApplicationWindow):
         self.flow.set_column_spacing(8)
         self.flow.set_margin_top(16)
         self.flow.set_margin_bottom(16)
-        # Remove horizontal margins here and apply them to the scrolled window
-        # so the visible content lines up with header/footer margins.
-        self.flow.set_margin_start(0)
-        self.flow.set_margin_end(0)
+        self.flow.set_margin_start(16)
+        self.flow.set_margin_end(16)
+
+        # Clamp keeps the grid a comfortable width on wide windows; the scrolled
+        # window (vexpand) makes the grid the scrollable region when it overflows.
+        clamp = Adw.Clamp(maximum_size=360, tightening_threshold=280)
+        clamp.set_child(self.flow)
 
         scrolled = Gtk.ScrolledWindow()
-        # Apply the same outer horizontal margins to the scrolled window so
-        # content aligns with header/footer.
-        scrolled.set_margin_start(16)
-        scrolled.set_margin_end(16)
-        scrolled.set_vexpand(False)
+        scrolled.set_vexpand(True)
         scrolled.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
-        scrolled.set_propagate_natural_height(True)
-        scrolled.set_child(self.flow)
-        root.append(scrolled)
+        scrolled.set_child(clamp)
+        toolbar_view.set_content(scrolled)
 
-        # Bottom bar — use the same outer margins as the main flow so corners align
+        # Bottom status bar
         bottom_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
-        bottom_bar.set_margin_start(16)
-        bottom_bar.set_margin_end(16)
-        bottom_bar.set_margin_top(16)
-        bottom_bar.set_margin_bottom(16)
+        bottom_bar.add_css_class("toolbar")
+        bottom_bar.set_margin_start(12)
+        bottom_bar.set_margin_end(12)
+        bottom_bar.set_margin_top(6)
+        bottom_bar.set_margin_bottom(6)
 
         self.status_label = Gtk.Label(label="Searching for devices…")
         self.status_label.add_css_class("caption")
@@ -294,25 +268,26 @@ class TaildropSenderWindow(Adw.ApplicationWindow):
         self.status_label.set_hexpand(True)
         self.status_label.set_xalign(0)
         bottom_bar.append(self.status_label)
-
-        self.btn_cancel = Gtk.Button(label="Cancel")
-        self.btn_cancel.connect("clicked", lambda _: self.get_application().quit())
-        # Remove any extra outer margin on the button so its corner aligns with the window
-        self.btn_cancel.set_margin_top(0)
-        self.btn_cancel.set_margin_end(0)
-        self.btn_cancel.set_margin_bottom(0)
-        self.btn_cancel.set_valign(Gtk.Align.CENTER)
-        bottom_bar.append(self.btn_cancel)
-
-        root.append(bottom_bar)
+        toolbar_view.add_bottom_bar(bottom_bar)
 
         self.refresh_timeout_id = None
         self._last_peers = []
         self.device_buttons = {}
 
+        # Escape closes the window (in addition to the header-bar close button).
+        esc = Gtk.EventControllerKey()
+        esc.connect("key-pressed", self._on_key_pressed)
+        self.add_controller(esc)
+
         self.connect("destroy", self.on_destroy)
         self.load_devices()
         self.start_auto_refresh()
+
+    def _on_key_pressed(self, _controller, keyval, _keycode, _state):
+        if keyval == Gdk.KEY_Escape:
+            self.close()
+            return True
+        return False
 
     def on_destroy(self, _):
         self.stop_auto_refresh()
@@ -380,7 +355,7 @@ class TaildropSenderWindow(Adw.ApplicationWindow):
 
     def update_ui_with_peers(self, peers, self_name):
         if self_name:
-            self.subtitle_label.set_label(self_name)
+            self.window_title.set_subtitle(self_name)
         # Build mapping of new peers and sort so online devices are preferred in
         # the resulting list. We'll reuse existing DeviceButton widgets where
         # possible to avoid recreating widgets (which causes hover flicker).
@@ -445,7 +420,6 @@ class TaildropSenderWindow(Adw.ApplicationWindow):
     def on_device_selected(self, device_name):
         self.stop_auto_refresh()
         self.flow.set_sensitive(False)
-        self.btn_cancel.set_sensitive(False)
 
         self.status_label.set_label(f"Sending to {device_name}…")
         if device_name in self.device_buttons:
