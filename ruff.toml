@@ -1,5 +1,4 @@
 # Aggressive linting for Nautilus-Taildrop.
-# Security rules (flake8-bandit "S") are enabled separately in the hardening pass.
 target-version = "py311"
 line-length = 100
 
@@ -19,12 +18,7 @@ select = [
     "A",    # flake8-builtins
     "ARG",  # flake8-unused-arguments
     "TRY",  # tryceratops
-]
-
-ignore = [
-    # subprocess `check=` handling is a robustness/security concern addressed in
-    # the hardening pass; enabled there so it isn't silently auto-suppressed here.
-    "PLW1510",
+    "S",    # flake8-bandit (security)
 ]
 
 [lint.pylint]

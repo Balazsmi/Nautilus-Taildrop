@@ -2,6 +2,7 @@
 import contextlib
 import json
 import math
+import shutil
 import subprocess
 import sys
 import threading
@@ -35,6 +36,22 @@ _FALLBACK_ACCENT = (0.21, 0.52, 0.89, 1.0)
 
 # A fully-specified peer entry is (display_name, os_name, online).
 _PEER_ENTRY_FIELDS = 3
+
+# Resolve required/optional executables to absolute paths once, up front. Using an
+# absolute path (rather than relying on a mutable PATH at call time) avoids
+# accidentally invoking a different binary and lets us fail fast with a clear error.
+TAILSCALE_BIN = shutil.which("tailscale")
+NOTIFY_SEND_BIN = shutil.which("notify-send")
+
+
+def _notify(title, body):
+    """Best-effort desktop notification; silently no-ops if notify-send is absent."""
+    if not NOTIFY_SEND_BIN:
+        return
+    with contextlib.suppress(Exception):
+        subprocess.Popen(  # noqa: S603  (fixed argv, no shell, resolved absolute path)
+            [NOTIFY_SEND_BIN, "-a", "Taildrop", title, body],
+        )
 
 
 class DeviceButton(Gtk.Box):
@@ -323,9 +340,9 @@ class TaildropSenderWindow(Adw.ApplicationWindow):
 
     def query_devices_async(self):
         try:
-            res = subprocess.run(
-                ["tailscale", "status", "--json"],
-                capture_output=True, text=True, timeout=5,
+            res = subprocess.run(  # noqa: S603  (fixed argv, no shell, resolved absolute path)
+                [TAILSCALE_BIN, "status", "--json"],
+                capture_output=True, text=True, timeout=5, check=False,
             )
             data = json.loads(res.stdout)
             # Use device display names where available and include offline peers.
@@ -356,8 +373,10 @@ class TaildropSenderWindow(Adw.ApplicationWindow):
                 online = online_val is True or str(online_val).lower() == "true"
                 peers.append((display, os_name, online))
             GLib.idle_add(self.update_ui_with_peers, peers, self_name)
-        except Exception:
-            pass
+        except (OSError, subprocess.SubprocessError, json.JSONDecodeError) as exc:
+            # Don't crash the poll loop, but surface the cause so a broken/missing
+            # tailscale CLI is diagnosable instead of silently showing no devices.
+            print(f"taildrop: failed to query devices: {exc}", file=sys.stderr)
 
     def update_ui_with_peers(self, peers, self_name):
         if self_name:
@@ -434,8 +453,12 @@ class TaildropSenderWindow(Adw.ApplicationWindow):
         threading.Thread(target=self.send_operation, args=(device_name,), daemon=True).start()
 
     def send_operation(self, device):
+        # No timeout here: transfers are unbounded in size. check=False is explicit
+        # because we branch on returncode ourselves rather than raising.
         success = all(
-            subprocess.run(["tailscale", "file", "cp", f, f"{device}:"]).returncode == 0
+            subprocess.run(  # noqa: S603  (fixed argv, no shell, resolved absolute path)
+                [TAILSCALE_BIN, "file", "cp", f, f"{device}:"], check=False,
+            ).returncode == 0
             for f in self.files
         )
         GLib.idle_add(self.on_finished, device, success)
@@ -447,15 +470,21 @@ class TaildropSenderWindow(Adw.ApplicationWindow):
         filenames = [Path(f).name for f in self.files]
         summary = filenames[0] if len(filenames) == 1 else f"{len(filenames)} files"
         if success:
-            subprocess.Popen(["notify-send", "-a", "Taildrop",
-                              "Sent successfully", f"{summary} → {device}"])
+            _notify("Sent successfully", f"{summary} → {device}")
         else:
-            subprocess.Popen(["notify-send", "-a", "Taildrop",
-                              "Send failed", f"Could not send {summary} to {device}."])
+            _notify("Send failed", f"Could not send {summary} to {device}.")
         self.get_application().quit()
 
 
 def main():
+    if not TAILSCALE_BIN:
+        print(
+            "taildrop: 'tailscale' CLI not found in PATH. Install Tailscale first: "
+            "https://tailscale.com/download",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
     app = Adw.Application(application_id="org.balazs.TaildropSender")
     app.set_flags(app.get_flags() | Gio.ApplicationFlags.HANDLES_OPEN)
 
