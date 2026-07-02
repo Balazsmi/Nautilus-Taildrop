@@ -30,6 +30,28 @@ DEVICE_ICONS = {
     "macos":   "laptop-symbolic",
 }
 
+MIN_WINDOW_WIDTH = 360
+DEFAULT_WINDOW_WIDTH = MIN_WINDOW_WIDTH
+ROW_HEIGHT = 120
+ROW_SPACING = 8
+FLOW_MARGIN_TOP = 16
+FLOW_MARGIN_BOTTOM = 16
+HEADER_BAR_HEIGHT = 48
+BOTTOM_BAR_HEIGHT = 48
+CONTENT_PADDING = 24
+DEFAULT_WINDOW_HEIGHT = (
+    HEADER_BAR_HEIGHT
+    + FLOW_MARGIN_TOP
+    + FLOW_MARGIN_BOTTOM
+    + (2 * ROW_HEIGHT)
+    + ROW_SPACING
+    + BOTTOM_BAR_HEIGHT
+    + CONTENT_PADDING
+)
+MIN_WINDOW_HEIGHT = DEFAULT_WINDOW_HEIGHT
+MAX_WINDOW_HEIGHT = 520
+SEARCHING_TEXT = "Searching for devices…"
+
 # Fallback accent (GNOME blue) when the theme exposes none.
 _FALLBACK_ACCENT = (0.21, 0.52, 0.89, 1.0)
 
@@ -158,7 +180,14 @@ class TaildropSenderWindow(Adw.ApplicationWindow):
     def __init__(self, app, files):
         super().__init__(application=app, title="Taildrop")
         self.files = files
-        self.set_default_size(380, 520)
+        self.set_default_size(DEFAULT_WINDOW_WIDTH, DEFAULT_WINDOW_HEIGHT)
+        self.set_size_request(MIN_WINDOW_WIDTH, MIN_WINDOW_HEIGHT)
+        # Prevent the window manager from resizing the window during startup.
+        self.set_resizable(False)
+        # Prevent the window from auto-growing immediately on startup
+        # to avoid a visual jump when the first device poll returns.
+        self._can_grow = False
+        GLib.timeout_add_seconds(1, self._unlock_startup_growth)
 
         css = Gtk.CssProvider()
         css.load_from_data(b"""
@@ -206,11 +235,10 @@ class TaildropSenderWindow(Adw.ApplicationWindow):
         header.set_title_widget(self.window_title)
         toolbar_view.add_top_bar(header)
 
-        # Device grid, 3 per row
+        # Device grid wraps to the available width.
         self.flow = Gtk.FlowBox()
         self.flow.set_valign(Gtk.Align.START)
         self.flow.set_halign(Gtk.Align.CENTER)
-        self.flow.set_max_children_per_line(3)
         self.flow.set_min_children_per_line(3)
         self.flow.set_selection_mode(Gtk.SelectionMode.NONE)
         self.flow.set_row_spacing(8)
@@ -220,28 +248,29 @@ class TaildropSenderWindow(Adw.ApplicationWindow):
         self.flow.set_margin_start(16)
         self.flow.set_margin_end(16)
 
-        # Clamp the width; the vexpanding scroller is what overflows.
-        clamp = Adw.Clamp(maximum_size=360, tightening_threshold=280)
-        clamp.set_child(self.flow)
-
         scrolled = Gtk.ScrolledWindow()
-        scrolled.set_vexpand(True)
+        scrolled.set_vexpand(False)
         scrolled.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
-        scrolled.set_child(clamp)
+        scrolled.set_child(self.flow)
         toolbar_view.set_content(scrolled)
 
         # Bottom status bar
         bottom_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
         bottom_bar.add_css_class("toolbar")
+        bottom_bar.set_valign(Gtk.Align.CENTER)
         bottom_bar.set_margin_start(12)
         bottom_bar.set_margin_end(12)
-        bottom_bar.set_margin_top(6)
-        bottom_bar.set_margin_bottom(6)
+        bottom_bar.set_margin_top(4)
+        bottom_bar.set_margin_bottom(8)
 
         self.status_label = Gtk.Label(label="Searching for devices…")
+        # Periodic fallback: if discovery doesn't update the UI within a short
+        # time, replace the searching label so it doesn't stick forever.
+        GLib.timeout_add_seconds(3, self._clear_searching_fallback)
         self.status_label.add_css_class("caption")
         self.status_label.add_css_class("dim-label")
         self.status_label.set_hexpand(True)
+        self.status_label.set_valign(Gtk.Align.CENTER)
         self.status_label.set_xalign(0)
         bottom_bar.append(self.status_label)
         toolbar_view.add_bottom_bar(bottom_bar)
@@ -315,6 +344,73 @@ class TaildropSenderWindow(Adw.ApplicationWindow):
         except (OSError, subprocess.SubprocessError, json.JSONDecodeError) as exc:
             # Keep the poll loop alive but make a broken tailscale CLI visible.
             print(f"taildrop: failed to query devices: {exc}", file=sys.stderr)
+            try:
+                GLib.idle_add(self._on_query_failed)
+            except Exception:
+                pass
+
+
+    def update_window_size(self):
+        rows = max(1, math.ceil(len(self.device_buttons) / max(1, self.flow.get_max_children_per_line())))
+        preferred_height = (
+            HEADER_BAR_HEIGHT
+            + FLOW_MARGIN_TOP
+            + FLOW_MARGIN_BOTTOM
+            + (rows * ROW_HEIGHT)
+            + max(0, rows - 1) * ROW_SPACING
+            + BOTTOM_BAR_HEIGHT
+            + CONTENT_PADDING
+        )
+        if not getattr(self, "_can_grow", True):
+            # During the startup lock period, don't change the visible size —
+            # just ensure the minimum is set so the initial presentation is correct.
+            self.set_size_request(MIN_WINDOW_WIDTH, MIN_WINDOW_HEIGHT)
+            return
+
+        # Do not request a bigger default size — keep the visible size stable.
+        # Respect the minimum height so two rows remain visible, but avoid
+        # growing the window to fit all devices automatically.
+        self.set_size_request(MIN_WINDOW_WIDTH, MIN_WINDOW_HEIGHT)
+
+    def _on_query_failed(self):
+        # Called on the main thread when the async query fails — update status.
+        if not self.device_buttons:
+            self.status_label.set_label("No devices found.")
+        else:
+            # If we have cached buttons, keep their status but clear the searching text.
+            online_count = sum(1 for v in self.device_buttons.values() if v.online)
+            if online_count == 0:
+                self.status_label.set_label("No online devices found.")
+            else:
+                plural = "s" if online_count != 1 else ""
+                self.status_label.set_label(f"{online_count} device{plural} online")
+
+    def _clear_searching_fallback(self):
+        try:
+            if self.status_label.get_label() == SEARCHING_TEXT:
+                # No update arrived; show a useful fallback message.
+                if not self.device_buttons:
+                    self.status_label.set_label("No devices found.")
+                else:
+                    online_count = sum(1 for v in self.device_buttons.values() if v.online)
+                    if online_count == 0:
+                        self.status_label.set_label("No online devices found.")
+                    else:
+                        plural = "s" if online_count != 1 else ""
+                        self.status_label.set_label(f"{online_count} device{plural} online")
+        except Exception:
+            pass
+        return False
+
+    def _unlock_startup_growth(self):
+        self._can_grow = True
+        # Re-enable resizing and trigger a single size update on the main loop.
+        try:
+            self.set_resizable(True)
+            GLib.idle_add(self.update_window_size)
+        except Exception:
+            pass
+        return False
 
     def update_ui_with_peers(self, peers, self_name):
         if self_name:
@@ -324,6 +420,7 @@ class TaildropSenderWindow(Adw.ApplicationWindow):
         if not new_map:
             for name in list(self.device_buttons):
                 self.flow.remove(self.device_buttons.pop(name))
+            self.update_window_size()
             self.status_label.set_label("No devices found.")
             return
 
@@ -341,6 +438,8 @@ class TaildropSenderWindow(Adw.ApplicationWindow):
 
         for name in existing - set(new_map):
             self.flow.remove(self.device_buttons.pop(name))
+
+        self.update_window_size()
 
         online_count = sum(1 for v in new_map.values() if v[1])
         if online_count == 0:
