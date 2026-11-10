@@ -9,6 +9,11 @@ if ! command -v tailscale &> /dev/null; then
     exit 1
 fi
 
+if ! command -v xdg-user-dir &> /dev/null; then
+    echo "Error: xdg-user-dir is not installed. Please install the xdg-user-dirs package."
+    exit 1
+fi
+
 if ! python3 -c "import gi" &> /dev/null; then
     echo "Error: python3-gi (PyGObject) is not installed. The GTK sender UI requires PyGObject."
     echo "  Fedora/RHEL: sudo dnf install python3-gobject"
@@ -53,4 +58,4 @@ nautilus -q 2>/dev/null || true
 echo ""
 echo "Installation complete!"
 echo "Right-click a file and choose 'Send via Taildrop'."
-echo "Files sent to this device will appear in ~/Downloads with a desktop notification."
+echo "Files sent to this device will appear in your XDG Downloads folder with a desktop notification."

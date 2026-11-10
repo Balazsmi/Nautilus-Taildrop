@@ -8,8 +8,18 @@ if [ -z "$TAILSCALE_BIN" ]; then
     exit 1
 fi
 
-DOWNLOADS_DIR="$HOME/Downloads"
-mkdir -p "$DOWNLOADS_DIR"
+XDG_USER_DIR_BIN=$(command -v xdg-user-dir || true)
+if [ -z "$XDG_USER_DIR_BIN" ]; then
+    echo "xdg-user-dir is not installed. Please install the xdg-user-dirs package." >&2
+    exit 1
+fi
+
+DOWNLOAD_DIR=$(xdg-user-dir DOWNLOAD)
+if [ -z "$DOWNLOAD_DIR" ]; then
+    echo "Could not determine the XDG download directory." >&2
+    exit 1
+fi
+mkdir -p "$DOWNLOAD_DIR"
 
 # Most recently modified file in a directory (find/sort handles spaces).
 newest_file() {
@@ -18,13 +28,13 @@ newest_file() {
 }
 
 while true; do
-    if "$TAILSCALE_BIN" file get --wait --conflict=rename "$DOWNLOADS_DIR/" 2>&1; then
+    if "$TAILSCALE_BIN" file get --wait --conflict=rename "$DOWNLOAD_DIR/" 2>&1; then
         sleep 0.5  # let the write settle before locating the file
 
-        filepath=$(newest_file "$DOWNLOADS_DIR")
+        filepath=$(newest_file "$DOWNLOAD_DIR")
 
         if [ -z "$filepath" ] || [ ! -e "$filepath" ]; then
-            filepath="$DOWNLOADS_DIR"
+            filepath="$DOWNLOAD_DIR"
             msg="Saved to Downloads folder."
         else
             msg="Received: $(basename "$filepath")"

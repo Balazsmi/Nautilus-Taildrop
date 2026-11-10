@@ -9,7 +9,7 @@ url="https://github.com/PaarthShah/Nautilus-Taildrop"
 # Upstream ships no LICENSE file; update this once a license is added upstream.
 license=('unknown')
 depends=('tailscale' 'python' 'python-gobject' 'gtk4' 'libadwaita' 'libnotify'
-         'xdg-utils' 'nautilus-python')
+         'xdg-utils' 'xdg-user-dirs' 'nautilus-python')
 optdepends=('nemo-python: right-click integration for the Nemo file manager')
 makedepends=('git')
 provides=("$_pkgname")

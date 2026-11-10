@@ -11,7 +11,7 @@ A lightweight Tailscale Taildrop integration for GNOME's Nautilus file manager
 
 - **Nautilus Integration:** Right-click a file $\rightarrow$ `Send via Taildrop` (a native `nautilus-python` context-menu extension — no per-user setup).
 - **Modern UI:** Borderless GTK4/Libadwaita device picker matching GNOME's design language and dynamic accent color.
-- **Auto-Receive Daemon:** Background systemd user service that automatically saves incoming files to `~/Downloads`.
+- **Auto-Receive Daemon:** Background systemd user service that automatically saves incoming files to your XDG Downloads folder.
 - **Desktop Notifications:** Native alerts with an immediate "Open" action upon receiving a file.
 
 ## 💻 Requirements
@@ -19,6 +19,7 @@ A lightweight Tailscale Taildrop integration for GNOME's Nautilus file manager
 - Fedora / Ubuntu / Debian / Arch with Nautilus or Nemo
 - Active [Tailscale](https://tailscale.com) installation and logged in on this device
 - `tailscale` CLI available in `PATH`
+- `xdg-user-dir` from the `xdg-user-dirs` package
 - Python 3 with GObject introspection bindings
 - `nautilus-python` (the Python extension loader) for the right-click menu entry
 
@@ -26,19 +27,19 @@ A lightweight Tailscale Taildrop integration for GNOME's Nautilus file manager
 
 **Fedora:**
 ```bash
-sudo dnf install python3-gobject nautilus-python
+sudo dnf install python3-gobject nautilus-python xdg-user-dirs
 ```
 
 **Ubuntu / Debian:**
 
 ```bash
-sudo apt install python3-gi gir1.2-gtk-4.0 gir1.2-adw-1 python3-nautilus
+sudo apt install python3-gi gir1.2-gtk-4.0 gir1.2-adw-1 python3-nautilus xdg-user-dirs
 ```
 
 **Arch:**
 
 ```bash
-sudo pacman -S python-gobject nautilus-python
+sudo pacman -S python-gobject nautilus-python xdg-user-dirs
 ```
 
 > The `tailscale` CLI must also be installed and authenticated separately. See https://tailscale.com/download for platform-specific instructions.
